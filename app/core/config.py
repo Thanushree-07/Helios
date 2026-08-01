@@ -4,9 +4,11 @@ class Settings(BaseSettings):
     model_config=SettingsConfigDict(
         env_file=".env",
         extra="ignore"
+
     )
     APP_NAME:str
     VERSION:str
     DEBUG:bool
+    GROQ_API_KEY:str
 
 settings=Settings()

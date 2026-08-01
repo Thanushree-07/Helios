@@ -1,19 +1,12 @@
 from fastapi import APIRouter
 
 from app.schemas.chat import ChatRequest,ChatResponse
+from app.services.chat_service import ChatService
 
 router = APIRouter()
 
-
+service=ChatService()
 @router.post("/chat", response_model=ChatResponse)
 def chat(request: ChatRequest):
 
-    if request.model=="llama3":
-        answer=f"[Llama3] You asked:{request.propmt}"
-    elif request.model=="gemini":
-        answer=f"[gemini] You asked:{request.prompt}"
-    else:
-        answer="Model not supported"
-    return{
-        "response":answer
-    }
+    return(service.process_chat(request))
