@@ -1,3 +1,10 @@
+from app.schemas.routing import RoutingDecision
+
+
 class ProviderSelector:
-    def selevt_provider(self,prompt:str)->str:
-        return "groq"
+
+    def select_provider(self, prompt: str) -> RoutingDecision:
+        return RoutingDecision(
+            task_type="general",
+            complexity="low"
+        )
