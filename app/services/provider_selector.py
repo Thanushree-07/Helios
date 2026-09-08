@@ -1,10 +1,22 @@
-from app.schemas.routing import RoutingDecision
+from app.services.router_service import RouterService
 
 
 class ProviderSelector:
 
-    def select_provider(self, prompt: str) -> RoutingDecision:
-        return RoutingDecision(
-            task_type="general",
-            complexity="low"
-        )
+    def __init__(self):
+        self.router = RouterService()
+
+    def select_provider(self, prompt: str) -> str:
+
+        decision = self.router.analyze(prompt)
+
+        print("Router decision:", decision)
+
+        if decision.task_type == "general" and decision.complexity == "low":
+            return "groq"
+
+        elif decision.task_type == "coding" and decision.complexity == "medium":
+            return "groq"
+
+        else:
+            return "groq"

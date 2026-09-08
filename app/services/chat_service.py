@@ -9,10 +9,9 @@ class ChatService:
         self.selector = ProviderSelector()
 
     def process_chat(self, request: ChatRequest) -> ChatResponse:
+        provider_name = self.selector.select_provider(request.prompt)
+        provider = ProviderFactory.get_provider(provider_name)
 
-        decision = self.selector.select_provider(request.prompt)
-
-        provider = ProviderFactory.get_provider(decision.provider)
 
         answer = provider.generate(request.prompt)
 
