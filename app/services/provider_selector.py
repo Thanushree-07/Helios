@@ -13,10 +13,15 @@ class ProviderSelector:
         print("Router decision:", decision)
 
         if decision.task_type == "general" and decision.complexity == "low":
+            print("general,low so = groq")
             return "groq"
 
         elif decision.task_type == "coding" and decision.complexity == "medium":
+            print("coding,medium so = groq")
+
             return "groq"
 
         else:
+            print("else part")
+
             return "groq"
