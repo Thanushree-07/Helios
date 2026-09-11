@@ -13,6 +13,12 @@ class ChatService:
     def process_chat(self, request: ChatRequest) -> ChatResponse:
         start_time=time.perf_counter()
 
+        provider_name = self.selector.select_provider(request.prompt)
+        provider = ProviderFactory.get_provider(provider_name)
+        
+        
+        
+
         print("PROMPT RECEIVED:", repr(request.prompt))
 
         cached_answer = redis_client.get(request.prompt)
@@ -28,13 +34,11 @@ class ChatService:
             )
 
         print("❌ CACHE MISS - Calling provider")
-
-        provider_name = self.selector.select_provider(request.prompt)
-        provider = ProviderFactory.get_provider(provider_name)
-
         answer = provider.generate(request.prompt)
 
-        redis_client.set(request.prompt, answer, ex=300)
+
+       
+        redis_client.set(f"{provider_name}:{request.prompt}", answer, ex=300)
 
         elapsed = time.perf_counter() - start_time
 

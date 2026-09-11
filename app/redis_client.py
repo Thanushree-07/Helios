@@ -8,3 +8,4 @@ redis_client = redis.Redis(
 
 if __name__=="__main__":
     print(redis_client.ping())
+

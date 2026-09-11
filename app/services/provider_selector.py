@@ -17,11 +17,11 @@ class ProviderSelector:
             return "groq"
 
         elif decision.task_type == "coding" and decision.complexity == "medium":
-            print("coding,medium so = groq")
+            print("coding,medium so = gemini")
 
-            return "groq"
+            return "gemini"
 
         else:
             print("else part")
 
-            return "groq"
+            return "gemini"
