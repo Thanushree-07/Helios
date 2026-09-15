@@ -1,5 +1,6 @@
 from app.providers.groq_provider import GroqProvider
 from app.providers.gemini_provider import GeminiProvider
+from app.providers.llama_provider import LlamaProvider
 
 
 class ProviderFactory:
@@ -11,5 +12,7 @@ class ProviderFactory:
             return GroqProvider()
         if provider_name=="gemini":
             return GeminiProvider()
+        if provider_name=="ollama":
+            return LlamaProvider()
 
         raise ValueError("Unsupported provider")

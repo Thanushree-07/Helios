@@ -28,13 +28,17 @@ class RouterService:
                         "content": """
 You are the routing brain of an AI gateway.
 
-Analyze the user's request and classify it.
+Classify the user's request into exactly these fields:
 
-Return a JSON object containing:
-- task_type
-- complexity
+- task_type: one of "general", "coding", "creative", "reasoning"
+- complexity: one of "low", "medium", "high"
 
-Do NOT answer the user's request.
+Examples:
+- "hi, how are you" -> {"task_type": "general", "complexity": "low"}
+- "write a python merge sort function" -> {"task_type": "coding", "complexity": "medium"}
+- "prove that the square root of 2 is irrational" -> {"task_type": "reasoning", "complexity": "high"}
+
+Return ONLY a JSON object with these two fields. Do NOT answer the user's request.
 """
                     },
                     {
@@ -44,7 +48,8 @@ Do NOT answer the user's request.
                 ],
                 response_format={
                     "type": "json_object"
-                }
+                },
+                temperature=0,
             )
 
             result = response.choices[0].message.content
