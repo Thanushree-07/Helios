@@ -1,49 +1,61 @@
-from app.schemas.chat import ChatRequest, ChatResponse
-from app.services.provider_selector import ProviderSelector
+import hashlib
+import logging
+import time
+
 from app.providers.provider_factory import ProviderFactory
 from app.redis_client import redis_client
-import time 
+from app.schemas.chat import ChatRequest, ChatResponse
+from app.services.provider_selector import ProviderSelector
+from app.services.rate_limiter import RateLimiter
+
+logger = logging.getLogger("helios.chat")
+
+CACHE_TTL_SECONDS = 300
+
+
+def _cache_key(prompt: str) -> str:
+   
+    digest = hashlib.sha256(prompt.strip().lower().encode("utf-8")).hexdigest()
+    return f"chat:{digest}"
 
 
 class ChatService:
 
     def __init__(self):
         self.selector = ProviderSelector()
+        self.rate_limiter = RateLimiter()
 
     def process_chat(self, request: ChatRequest) -> ChatResponse:
-        start_time=time.perf_counter()
 
-        provider_name = self.selector.select_provider(request.prompt)
-        provider = ProviderFactory.get_provider(provider_name)
-        
-        
-        
+        # Stage 2: rate limit
+        self.rate_limiter.check("user1")
 
-        print("PROMPT RECEIVED:", repr(request.prompt))
+        start_time = time.perf_counter()
+        cache_key = _cache_key(request.prompt)
 
-        cached_answer = redis_client.get(request.prompt)
-
-        print("REDIS RETURNED:", repr(cached_answer))
+        # Stage 3: cache check — BEFORE routing, so a hit never pays for
+        # the router's classification call either.
+        cached_answer = redis_client.get(cache_key)
 
         if cached_answer is not None:
-            elapsed=time.perf_counter()-start_time
-            print(f"🔥 CACHE HIT - Response came from Redis and time elapsed:{elapsed:.4f}seconds")
+            elapsed = time.perf_counter() - start_time
+            logger.info("cache hit (%.4fs)", elapsed)
+            return ChatResponse(response=cached_answer)
 
-            return ChatResponse(
-                response=cached_answer
-            )
+        logger.info("cache miss — routing and calling provider")
 
-        print("❌ CACHE MISS - Calling provider")
+        # Stage 4: router picks a provider (cost of this call is now only
+        # paid on a genuine cache miss)
+        provider_name = self.selector.select_provider(request.prompt)
+        provider = ProviderFactory.get_provider(provider_name)
+
+        # Stage 6: call the LLM
         answer = provider.generate(request.prompt)
 
-
-       
-        redis_client.set(f"{provider_name}:{request.prompt}", answer, ex=300)
+        # Stage 7: save to cache
+        redis_client.set(cache_key, answer, ex=CACHE_TTL_SECONDS)
 
         elapsed = time.perf_counter() - start_time
+        logger.info("provider=%s elapsed=%.4fs", provider_name, elapsed)
 
-        print("💾 STORED RESPONSE IN REDIS and elapsed time =",elapsed)
-
-        return ChatResponse(
-            response=answer
-        )
+        return ChatResponse(response=answer)
