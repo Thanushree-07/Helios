@@ -10,7 +10,7 @@ from app.resilience.circuit_breaker import CircuitBreakerRegistry
 from app.schemas.chat import ChatRequest, ChatResponse
 from app.services.provider_selector import ProviderSelector
 from app.services.rate_limiter import RateLimiter
-
+from app.observability.metrics import PROVIDER_FAILURES,REQUEST_COUNT,REQUEST_LATENCY
 logger = logging.getLogger("helios.chat")
 
 CACHE_TTL_SECONDS = 300
@@ -56,6 +56,8 @@ class ChatService:
 
             except Exception as e:
                 breaker.record_failure()
+                PROVIDER_FAILURES.labels(provider=provider_name).inc()
+
                 logger.warning("provider %s failed (%s), trying next", provider_name, e)
                 last_error = e
                 continue
@@ -78,6 +80,8 @@ class ChatService:
 
         if cached_answer is not None:
             elapsed = time.perf_counter() - start_time
+            REQUEST_COUNT.labels(cache_result="hit", provider="none").inc()
+            REQUEST_LATENCY.labels(cache_result="hit").observe(elapsed)
             logger.info("cache hit (%.4fs)", elapsed)
             return ChatResponse(response=cached_answer)
 
@@ -94,5 +98,7 @@ class ChatService:
 
         elapsed = time.perf_counter() - start_time
         logger.info("provider=%s elapsed=%.4fs", used_provider, elapsed)
+        REQUEST_COUNT.labels(cache_result="miss", provider=used_provider).inc()
+        REQUEST_LATENCY.labels(cache_result="miss").observe(elapsed)
 
         return ChatResponse(response=answer)

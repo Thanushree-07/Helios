@@ -1,9 +1,9 @@
 import logging
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from app.core.config import settings
 from app.api.health import router as health_router 
 from app.api.chat import router as chat_router
-
+from prometheus_client import CONTENT_TYPE_LATEST,generate_latest
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
@@ -22,3 +22,6 @@ def root():
         "Status":"Running"
     }
 
+@app.get("/metrics")
+def metrics():
+    return Response(content=generate_latest(),media_type=CONTENT_TYPE_LATEST)
