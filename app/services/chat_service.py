@@ -3,14 +3,15 @@ import logging
 import time
 
 from fastapi import HTTPException
-
+from app.cache.semantic import semantic_cache
 from app.providers.provider_factory import ProviderFactory
 from app.redis_client import redis_client
 from app.resilience.circuit_breaker import CircuitBreakerRegistry
 from app.schemas.chat import ChatRequest, ChatResponse
 from app.services.provider_selector import ProviderSelector
 from app.services.rate_limiter import RateLimiter
-from app.observability.metrics import PROVIDER_FAILURES,REQUEST_COUNT,REQUEST_LATENCY
+from app.observability.metrics import PROVIDER_FAILURES, REQUEST_COUNT, REQUEST_LATENCY
+
 logger = logging.getLogger("helios.chat")
 
 CACHE_TTL_SECONDS = 300
@@ -75,15 +76,30 @@ class ChatService:
         start_time = time.perf_counter()
         cache_key = _cache_key(request.prompt)
 
-        # Stage 3: cache check — before routing
+        # Stage 3a: exact cache check — before routing
         cached_answer = redis_client.get(cache_key)
 
         if cached_answer is not None:
             elapsed = time.perf_counter() - start_time
-            REQUEST_COUNT.labels(cache_result="hit", provider="none").inc()
-            REQUEST_LATENCY.labels(cache_result="hit").observe(elapsed)
-            logger.info("cache hit (%.4fs)", elapsed)
+            REQUEST_COUNT.labels(cache_result="hit_exact", provider="none").inc()
+            REQUEST_LATENCY.labels(cache_result="hit_exact").observe(elapsed)
+            logger.info("cache hit (exact) (%.4fs)", elapsed)
             return ChatResponse(response=cached_answer)
+
+        # Stage 3b: semantic cache check — catches reworded versions of a
+        # question we've already answered, before paying for router+provider
+        similar_key, similarity_score = semantic_cache.find_similar(request.prompt)
+        if similar_key is not None:
+            semantic_answer = redis_client.get(similar_key)
+            if semantic_answer is not None:
+                similar_key, similarity_score = semantic_cache.find_similar(request.prompt)
+        logger.info("semantic best match score=%.3f (threshold=%.2f)", similarity_score, 0.75)
+        if similar_key is not None:
+                elapsed = time.perf_counter() - start_time
+                REQUEST_COUNT.labels(cache_result="hit_semantic", provider="none").inc()
+                REQUEST_LATENCY.labels(cache_result="hit_semantic").observe(elapsed)
+                logger.info("cache hit (semantic, score=%.3f) (%.4fs)", similarity_score, elapsed)
+                return ChatResponse(response=semantic_answer)
 
         logger.info("cache miss — routing and calling provider")
 
@@ -93,8 +109,9 @@ class ChatService:
         # Stage 5 + 6: circuit breaker check + call LLM, with failover
         answer, used_provider = self._call_with_failover(provider_name, request.prompt)
 
-        # Stage 7: save to cache
+        # Stage 7: save to both caches
         redis_client.set(cache_key, answer, ex=CACHE_TTL_SECONDS)
+        semantic_cache.add(request.prompt, cache_key)
 
         elapsed = time.perf_counter() - start_time
         logger.info("provider=%s elapsed=%.4fs", used_provider, elapsed)
