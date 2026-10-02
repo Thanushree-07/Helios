@@ -98,10 +98,4 @@ pytest -v
 - **No persistent storage for Grafana** — dashboards/data sources reset if the container is removed
 - **Single hardcoded API key** — a real multi-tenant system would issue unique keys per customer with individual rate limits and usage tracking
 
-## Architecture Decisions
 
-See [`docs/adr/`](docs/adr/) for the reasoning behind key design choices (circuit breaker thresholds, cache-before-router ordering, semantic similarity threshold).
-
-## License
-
-MIT (or your choice)
