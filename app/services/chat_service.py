@@ -68,10 +68,10 @@ class ChatService:
             detail="All providers are currently unavailable.",
         ) from last_error
 
-    def process_chat(self, request: ChatRequest) -> ChatResponse:
+    def process_chat(self, request: ChatRequest,client_id:str) -> ChatResponse:
 
         # Stage 2: rate limit
-        self.rate_limiter.check("user1")
+        self.rate_limiter.check(client_id)
 
         start_time = time.perf_counter()
         cache_key = _cache_key(request.prompt)

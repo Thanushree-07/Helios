@@ -1,13 +1,15 @@
-from fastapi import APIRouter,Depends
+from fastapi import APIRouter, Depends
 
-from app.schemas.chat import ChatRequest,ChatResponse
-from app.services.chat_service import ChatService
 from app.middleware.auth import require_api_key
+from app.schemas.chat import ChatRequest, ChatResponse
+from app.services.chat_service import ChatService
 
 router = APIRouter()
 
-service=ChatService()
-@router.post("/chat", response_model=ChatResponse,dependencies=[Depends(require_api_key)])
-def chat(request: ChatRequest):
+service = ChatService()
 
-    return(service.process_chat(request))
+
+@router.post("/chat", response_model=ChatResponse)
+def chat(request: ChatRequest, api_key: str = Depends(require_api_key)):
+
+    return service.process_chat(request, client_id=api_key)

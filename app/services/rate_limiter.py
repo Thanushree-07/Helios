@@ -4,7 +4,7 @@ from fastapi import HTTPException
 
 class RateLimiter:
 
-    def __init__(self, limit: int = 10, window: int = 60):
+    def __init__(self, limit: int = 1000, window: int = 60):
         self.limit = limit
         self.window = window
 
