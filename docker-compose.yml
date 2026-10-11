@@ -10,10 +10,19 @@ services:
       - "8000:8000"
     environment:
       - REDIS_HOST=redis
+      - DATABASE_URL=postgresql://helios:helios_dev_password@postgres:5432/helios
     env_file:
       - .env
     depends_on:
       - redis
+      - postgres
+
+  frontend:
+    build: ./helios-ui
+    ports:
+      - "5173:80"
+    depends_on:
+      - app
 
   prometheus:
     image: prom/prometheus:latest
@@ -30,3 +39,17 @@ services:
       - GF_SECURITY_ADMIN_PASSWORD=admin
     depends_on:
       - prometheus
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=helios
+      - POSTGRES_PASSWORD=helios_dev_password
+      - POSTGRES_DB=helios
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
