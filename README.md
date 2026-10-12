@@ -4,8 +4,40 @@ Helios is a gateway that sits between applications and LLM providers (Groq, Gemi
 
 ## Architecture
 
-![Helios architecture](docs/architecture.svg)
+```mermaid
+flowchart LR
+    UI["React UI (browser)"] --> NGINX["nginx (frontend container)"]
+    NGINX -->|"/api"| API["FastAPI backend"]
+    LOAD["Locust load test"] --> API
+    API --> REDIS[("Redis: exact cache and rate limits")]
+    API --> PG[("PostgreSQL: providers, keys, logs")]
+    API --> GROQ["Groq"]
+    API --> GEMINI["Gemini"]
+    PROM["Prometheus"] -->|"scrapes /metrics"| API
+    GRAF["Grafana"] --> PROM
+```
 
+### Request flow
+
+```mermaid
+flowchart TD
+    R["Request"] --> AUTH{"API key valid?"}
+    AUTH -- no --> E401["401 Unauthorized"]
+    AUTH -- yes --> RATE{"Within rate limit?"}
+    RATE -- no --> E429["429 Too Many Requests"]
+    RATE -- yes --> EX{"Exact cache hit?"}
+    EX -- yes --> OUT["Return cached answer"]
+    EX -- no --> SEM{"Semantic match, score 0.75 or more?"}
+    SEM -- yes --> OUT
+    SEM -- no --> ROUTER["Router picks a provider"]
+    ROUTER --> CB{"Circuit closed?"}
+    CB -- yes --> LLM["Call the provider"]
+    CB -- no --> FAIL["Fail over to the next provider"]
+    FAIL --> LLM
+    LLM --> SAVE["Save to Redis and semantic index"]
+    SAVE --> LOG["Log to PostgreSQL and metrics"]
+    LOG --> DONE["Return the answer"]
+```
 ```
 Browser (React UI) ──► nginx ──► FastAPI backend ──► Groq / Gemini
                                    │   │   │
