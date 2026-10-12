@@ -1,101 +1,121 @@
+# Helios — Distributed LLM Gateway
+
+Helios is a gateway that sits between applications and LLM providers (Groq, Gemini). It authenticates and rate-limits requests, answers repeated or similar questions from a cache instead of calling an LLM, routes the rest to a suitable provider, and automatically fails over when a provider is down. It comes with a React admin console, a PostgreSQL database, and Prometheus/Grafana monitoring.
+
+## Architecture
+
+![Helios architecture](docs/architecture.svg)
+
+```
+Browser (React UI) ──► nginx ──► FastAPI backend ──► Groq / Gemini
+                                   │   │   │
+                                   │   │   └─► PostgreSQL (providers, API keys, request logs)
+                                   │   └─────► Redis (exact cache, rate limits)
+                                   └─────────► Prometheus ──► Grafana
+```
 
 ### Request pipeline
 
-Every request flows through 7 stages:
+1. **Auth** — the API key is checked against the database.
+2. **Rate limit** — per-key counter in Redis (fixed 60-second window).
+3. **Exact cache** — a SHA-256 of the normalized prompt is looked up in Redis.
+4. **Semantic cache** — if there is no exact match, the prompt is embedded with `all-MiniLM-L6-v2` and compared by cosine similarity (threshold 0.75) with previously answered prompts.
+5. **Router** — an LLM-based classifier picks the best provider for the task.
+6. **Circuit breaker + failover** — each provider has a circuit breaker (closed / open / half-open, 3 failures, 30 s cooldown). If the chosen provider is unavailable, the next one in the fallback order is tried.
+7. **Save** — the answer is stored in Redis (TTL 300 s) and in the semantic index.
+8. **Log** — the request is stored in PostgreSQL and exposed through Prometheus metrics.
 
-1. **Auth** — validates `X-API-Key` header → 401 if missing/invalid
-2. **Rate limit** — per-client request cap via Redis → 429 if exceeded
-3. **Exact cache check** — SHA-256 hash of the prompt → instant return on hit
-4. **Semantic cache check** — local embedding similarity (sentence-transformers) catches *reworded* questions an exact match would miss
-5. **Router** — an LLM classifies the prompt (task type + complexity) and selects a provider
-6. **Circuit breaker + call** — each provider has an independent health tracker (Closed → Open → Half-Open); a failing provider is automatically skipped and the request fails over to the next one
-7. **Save + observe** — response cached in Redis (and indexed semantically), Prometheus metrics recorded
-
-## Features
-
-- ✅ Multi-provider routing (Groq, Gemini, Ollama) via an LLM-based classifier
-- ✅ Two-tier caching: exact-match (Redis) + semantic similarity (local embeddings, zero API cost)
-- ✅ Per-provider circuit breaker with automatic failover — survives real provider outages
-- ✅ Per-client rate limiting
-- ✅ Full observability: Prometheus metrics + live Grafana dashboard
-- ✅ One-command deployment via Docker Compose
-- ✅ Automated test suite (pytest) covering auth, caching, and circuit-breaker state transitions
-- ✅ Load-tested with Locust
-
-## Tech Stack
+## Tech stack
 
 | Layer | Technology |
 |---|---|
-| API framework | FastAPI + Uvicorn |
-| Cache + rate limiting | Redis |
-| Semantic cache | sentence-transformers (all-MiniLM-L6-v2), runs 100% locally |
-| LLM providers | Groq, Google Gemini, Ollama |
-| Metrics | Prometheus |
-| Dashboards | Grafana |
-| Containerization | Docker + Docker Compose |
-| Testing | pytest |
-| Load testing | Locust |
+| Frontend | React (Vite), served by nginx |
+| Backend | Python, FastAPI, Pydantic |
+| Database | PostgreSQL 16 (SQLAlchemy) |
+| Cache / rate limiting | Redis 7 |
+| Semantic search | sentence-transformers (`all-MiniLM-L6-v2`), cosine similarity |
+| LLM providers | Groq, Gemini |
+| Monitoring | Prometheus, Grafana |
+| Packaging | Docker, Docker Compose |
+| Testing | pytest, Locust (load testing) |
 
-## Quick Start
+## Running it
 
-```bash
-git clone <your-repo-url>
-cd helios
-cp .env.example .env
-# fill in your GROQ_API_KEY, GEMINI_API_KEY, and API_KEY in .env
+**Requirements:** Docker Desktop (with at least 4 GB of memory available to Docker).
 
-docker compose up --build
+1. Clone the repository.
+2. Copy `.env.example` to `.env` and fill in your Groq and Gemini API keys and the gateway API key.
+3. Start everything:
 ```
-
-Once running:
-- API docs: `http://localhost:8000/docs`
-- Metrics: `http://localhost:8000/metrics`
-- Prometheus: `http://localhost:9090`
-- Grafana: `http://localhost:3000` (default login: admin/admin)
-
-## Usage
-
-```bash
-curl -X POST http://localhost:8000/chat \
-  -H "X-API-Key: your-key-here" \
-  -H "Content-Type: application/json" \
-  -d '{"prompt": "What is Python used for?"}'
+   docker compose up --build
 ```
+   The first build takes a while because of PyTorch.
+4. In a second terminal, add the provider rows to the database (once):
+```
+   docker compose exec -e PYTHONPATH=/app app python scripts/seed_providers.py
+```
+5. Open the UI, go to **API Keys**, create a key, then try it in the **Playground**.
 
-## Benchmark Results
-
-Measured via Locust (10 concurrent simulated users, mixed new/repeated/paraphrased traffic):
-
-| Metric | Result |
+| What | URL |
 |---|---|
-| Median latency | 54 ms |
-| p95 latency | 230 ms |
-| p99 latency | 37,000 ms (provider-outage retries) |
-| Failure rate | 1.4% |
-| Cache hit rate (test traffic) | ~97%* |
-| Semantic vs. exact cache hit, measured example | "What causes earthquakes?" vs "Why do earthquakes happen?" → matched at 0.913 similarity |
+| Admin UI | http://localhost:5173 |
+| API docs (Swagger) | http://localhost:8000/docs |
+| Prometheus metrics | http://localhost:8000/metrics |
+| Prometheus | http://localhost:9090 |
+| Grafana | http://localhost:3000 (admin / admin) |
 
-\* *This figure reflects Locust's repeated test question pool, not real-world traffic diversity — included for transparency on test methodology, not as a general production claim.*
+## Admin UI
 
-**Real incident, caught live:** Gemini's free tier returned a genuine `503 Service Unavailable` mid-testing. The circuit breaker recorded the failure and automatically failed over to Groq — the end user never saw an error.
+- **Playground** — send a prompt and watch it pass through each pipeline stage, with cache hits, provider and latency shown.
+- **Logs** — every request stored in PostgreSQL.
+- **Dashboard** — request counts, cache hit rate, latency and traffic per provider, computed from the logs.
+- **Providers** — the configured providers and their health.
+- **API Keys** — create, disable and delete keys.
+
+## Monitoring
+
+Prometheus scrapes `/metrics` from the backend. The Grafana dashboard *Helios Overview* shows requests by `cache_result` (`hit_exact`, `hit_semantic`, `miss`), latency, and provider failures.
 
 ## Testing
 
-```bash
-pip install -r requirements.txt
-pytest -v
+Unit tests (run inside Docker):
 ```
-11 tests covering authentication, the full `/chat` request flow (mocked providers), and all circuit-breaker state transitions.
+docker compose exec app pytest
+```
 
-## Known Limitations / Future Work
+Load test with Locust (simulated users sending a mix of questions and rewordings):
+```
+locust -f benchmarks/locustfile.py --host http://localhost:8000
+```
+Then open http://localhost:8089 and watch Grafana while it runs.
 
-- **Not yet OpenAI-compatible** — uses a custom `/chat` schema rather than `/v1/chat/completions`
-- **Router is LLM-based, not config-driven** — adds one classification call per cache miss (mitigated by checking cache before routing)
-- **Rate limiter uses Redis `INCR`/`EXPIRE`**, not an atomic Lua script — a small race condition is possible under heavy concurrency
-- **Semantic cache is in-memory, per-instance** — would need to move to a shared store (e.g., a vector DB or Redis) to support true horizontal scaling across multiple app instances
-- **Single Dockerfile stage** — a multi-stage build would produce a smaller production image
-- **No streaming (SSE) support** yet
-- **No persistent storage for Grafana** — dashboards/data sources reset if the container is removed
-- **Single hardcoded API key** — a real multi-tenant system would issue unique keys per customer with individual rate limits and usage tracking
+## Known limitations
 
+This is a college project, so these are deliberate trade-offs, listed honestly:
 
+- **No authentication on the admin API** (`/api/*`). The UI is an admin console; it should not be exposed to the public internet as it is.
+- **Not OpenAI-compatible.** The gateway has its own request format.
+- **Router is an LLM classifier,** not a rule or YAML-based policy engine.
+- **Rate limiter** uses Redis `INCR`/`EXPIRE` (fixed window), not an atomic Lua script.
+- **Providers are called synchronously** (blocking HTTP calls).
+- **Semantic cache index is in memory.** It resets when the backend restarts and is not shared between multiple instances. A vector store would be the next step.
+- **No streaming responses** (no SSE).
+- **Token counts in the UI are estimates** (about two per word), not the providers' exact counts.
+- **Failed requests (for example 401s) are not written to the request log,** so the dashboard's error rate does not reflect them.
+- **Ollama support** is wired in the fallback order but untested.
+- **Grafana data is not persisted** across container recreation.
+- **Docker image is single-stage,** so it is larger than necessary.
+- Not production-hardened: default development passwords, no HTTPS, database ports exposed.
+
+## Project structure
+
+```
+app/            FastAPI backend (api, services, cache, resilience, observability, db)
+helios-ui/      React admin console + nginx config
+benchmarks/     Locust load test
+prometheus/     Prometheus config
+scripts/        Database seed script
+tests/          pytest tests
+docs/           Architecture diagram
+docker-compose.yml
+```
