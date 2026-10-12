@@ -96,16 +96,11 @@ This is a college project, so these are deliberate trade-offs, listed honestly:
 - **No authentication on the admin API** (`/api/*`). The UI is an admin console; it should not be exposed to the public internet as it is.
 - **Not OpenAI-compatible.** The gateway has its own request format.
 - **Router is an LLM classifier,** not a rule or YAML-based policy engine.
-- **Rate limiter** uses Redis `INCR`/`EXPIRE` (fixed window), not an atomic Lua script.
 - **Providers are called synchronously** (blocking HTTP calls).
 - **Semantic cache index is in memory.** It resets when the backend restarts and is not shared between multiple instances. A vector store would be the next step.
-- **No streaming responses** (no SSE).
-- **Token counts in the UI are estimates** (about two per word), not the providers' exact counts.
 - **Failed requests (for example 401s) are not written to the request log,** so the dashboard's error rate does not reflect them.
 - **Ollama support** is wired in the fallback order but untested.
-- **Grafana data is not persisted** across container recreation.
 - **Docker image is single-stage,** so it is larger than necessary.
-- Not production-hardened: default development passwords, no HTTPS, database ports exposed.
 
 ## Project structure
 
